@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Pixel Space Invaders</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        html, body {
+            height: 100%; /* Ensure body takes full height */
+            margin: 0;
+            padding: 0;
+            background-color: #000; /* Black background */
+            color: #fff;
+            font-family: 'Press Start 2P', cursive; /* Arcade font */
+            overflow: hidden; /* Prevent scrollbars */
+            touch-action: manipulation; /* Prevent double-tap zoom etc. */
+        }
+        body {
+            display: flex;
+            flex-direction: column; /* Stack game and controls vertically */
+            justify-content: center; /* Center vertically */
+            align-items: center; /* Center horizontally */
+        }
+        #game-wrapper {
+             /* Container to help with scaling */
+            width: 100%;
+            max-width: 800px; /* Max width of the original canvas */
+            aspect-ratio: 800 / 600; /* Maintain aspect ratio */
+            margin: 0 auto; /* Center horizontally */
+            position: relative; /* For message overlay positioning */
+        }
+        canvas {
+            border: 2px solid #0f0; /* Neon green border */
+            background-color: #000;
+            display: block; /* Prevent extra space below canvas */
+            width: 100%; /* Make canvas fill wrapper width */
+            height: 100%; /* Make canvas fill wrapper height */
+        }
+        #controls-container {
+            display: flex;
+            justify-content: space-around; /* Space out buttons */
+            align-items: center;
+            width: 100%;
+            max-width: 600px; /* Limit controls width on large screens */
+            padding: 15px 0; /* Add some spacing */
+            margin-top: 10px; /* Space between canvas and controls */
+            user-select: none; /* Prevent text selection on buttons */
+            -webkit-user-select: none; /* Safari */
+            -moz-user-select: none; /* Firefox */
+            -ms-user-select: none; /* IE */
+        }
+        .control-button {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 24px; /* Larger for touch */
+            padding: 15px 25px; /* Larger padding */
+            background-color: #444; /* Dark grey */
+            color: #0f0; /* Neon green text */
+            border: 2px solid #0f0; /* Neon green border */
+            border-radius: 10px; /* Rounded corners */
+            cursor: pointer;
+            box-shadow: 3px 3px #222; /* Darker shadow */
+            transition: background-color 0.1s, transform 0.05s;
+            text-align: center;
+        }
+        .control-button:active {
+             transform: translate(2px, 2px);
+             box-shadow: 1px 1px #222;
+             background-color: #555;
+         }
+         /* Style for game over/start messages */
+        .message-overlay {
+            position: absolute; /* Position relative to game-wrapper */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0; /* Yellow */
+            text-align: center;
+            font-size: clamp(16px, 4vw, 24px); /* Responsive font size */
+            text-shadow: 2px 2px #f00; /* Red shadow for retro effect */
+            padding: 20px;
+            background-color: rgba(0, 0, 0, 0.8);
+            border: 2px solid #0f0;
+            border-radius: 10px; /* Rounded corners */
+            display: none; /* Hidden by default */
+            z-index: 10;
+            width: 80%; /* Relative width */
+            max-width: 400px;
+        }
+        .message-overlay button {
+             font-family: 'Press Start 2P', cursive;
+             font-size: clamp(14px, 3vw, 16px); /* Responsive font size */
+             padding: 10px 15px;
+             margin-top: 15px;
+             background-color: #f00; /* Red button */
+             color: #fff;
+             border: 2px solid #fff; /* White border */
+             border-radius: 5px;
+             cursor: pointer;
+             box-shadow: 3px 3px #800; /* Dark red shadow */
+             transition: background-color 0.2s, transform 0.1s;
+        }
+         .message-overlay button:active {
+             transform: translate(2px, 2px);
+             box-shadow: 1px 1px #800;
+         }
+         .message-overlay button:hover {
+            background-color: #d00; /* Darker red on hover */
+         }
+         /* Hide original controls text on small screens if desired */
+         #controls-text {
+            display: none; /* Hide by default, show on larger screens if needed */
+         }
+         @media (min-width: 600px) {
+            #controls-text {
+                display: block; /* Show text on larger screens */
+                margin-top: 15px;
+                font-size: 12px;
+                color: #0f0;
+            }
+         }
+
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="messageOverlay" class="message-overlay">
+        <p id="messageText"></p>
+        <button id="restartButton">RESTART</button>
+    </div>
+</div>
+
+<div id="controls-container">
+    <button id="leftButton" class="control-button">LEFT</button>
+    <button id="shootButton" class="control-button">FIRE</button>
+    <button id="rightButton" class="control-button">RIGHT</button>
+</div>
+
+<div id="controls-text">Controls: Left/Right Arrows | Spacebar to Shoot</div>
+
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const messageOverlay = document.getElementById('messageOverlay');
+    const messageText = document.getElementById('messageText');
+    const restartButton = document.getElementById('restartButton');
+    const leftButton = document.getElementById('leftButton');
+    const rightButton = document.getElementById('rightButton');
+    const shootButton = document.getElementById('shootButton');
+
+    // --- Game Settings ---
+    const PADDLE_WIDTH = 60;
+    const PADDLE_HEIGHT = 20;
+    const PADDLE_SPEED = 8;
+    const BULLET_WIDTH = 4;
+    const BULLET_HEIGHT = 12;
+    const BULLET_SPEED = 10;
+    const ALIEN_ROWS = 5;
+    const ALIEN_COLS = 10;
+    const ALIEN_WIDTH = 40;
+    const ALIEN_HEIGHT = 30;
+    const ALIEN_PADDING = 15;
+    const ALIEN_OFFSET_TOP = 50;
+    const ALIEN_OFFSET_LEFT = 30;
+    const ALIEN_SPEED_X_START = 1.5; // Initial speed
+    const ALIEN_SPEED_Y = 25; // How much aliens move down
+    const ALIEN_SHOOT_CHANCE = 0.0015; // Chance per alien per frame
+    const ALIEN_BULLET_SPEED = 5;
+    const STAR_COUNT = 150;
+    const START_LIVES = 3;
+    const WAVE_SPEED_INCREASE = 1.1; // How much faster aliens get each wave
+
+    // --- Game State ---
+    let paddleX;
+    let bullets = []; // { x, y, active }
+    let aliens = []; // { x, y, width, height, active, type }
+    let alienBullets = []; // { x, y, active }
+    let alienDirection = 1; // 1 for right, -1 for left
+    let alienSpeedX = ALIEN_SPEED_X_START;
+    let score = 0;
+    let lives = START_LIVES;
+    let stars = []; // { x, y, radius }
+    let keys = {}; // Keep track of pressed keys
+    let touchLeftActive = false; // Track touch state
+    let touchRightActive = false; // Track touch state
+    let touchShootActive = false; // Track touch state (for single fire)
+    let gameOver = false;
+    let gameStarted = false; // Start screen state
+    let audioContext;
+    let audioInitialized = false; // Flag to ensure audio starts on interaction
+    let alienMoveSoundToggle = false; // For alternating move sound
+    let currentWave = 1; // Track waves for difficulty scaling
+
+    // --- Asset Generation (Pixel Art as Data URLs) ---
+    const alienSprites = []; // Store different alien images
+    const playerSprite = new Image();
+
+    function generatePixelArtDataURL(pixels, palette, pixelSize) {
+        const tempCanvas = document.createElement('canvas'); // Use temporary canvas
+        const width = pixels[0].length * pixelSize;
+        const height = pixels.length * pixelSize;
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        for (let y = 0; y < pixels.length; y++) {
+            for (let x = 0; x < pixels[y].length; x++) {
+                const colorChar = pixels[y][x];
+                if (palette[colorChar]) {
+                    tempCtx.fillStyle = palette[colorChar];
+                    tempCtx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
+                }
+            }
+        }
+        return tempCanvas.toDataURL();
+    }
+
+    function initializeAssets() {
+        // Player Sprite (Simple 'A' shape)
+        const playerPixels = [
+            '..W..',
+            '.WWW.',
+            'WWWWW',
+            'W.W.W'
+        ];
+        const playerPalette = { '.': 'transparent', 'W': '#00FF00' }; // Neon Green
+        playerSprite.src = generatePixelArtDataURL(playerPixels, playerPalette, 4);
+
+        // Alien Type 1 (Squid-like)
+        const alien1Pixels = [
+            '..W..',
+            '.WWW.',
+            'WWWWW',
+            'W.W.W',
+            '.W.W.'
+        ];
+        const alien1Palette = { '.': 'transparent', 'W': '#FF00FF' }; // Magenta
+        const alien1Img = new Image();
+        alien1Img.src = generatePixelArtDataURL(alien1Pixels, alien1Palette, 3);
+        alienSprites.push(alien1Img);
+
+        // Alien Type 2 (Crab-like)
+        const alien2Pixels = [
+            'W...W',
+            '.W.W.',
+            'WWWWW',
+            '.WWW.',
+            'W.W.W'
+        ];
+        const alien2Palette = { '.': 'transparent', 'W': '#00FFFF' }; // Cyan
+        const alien2Img = new Image();
+        alien2Img.src = generatePixelArtDataURL(alien2Pixels, alien2Palette, 3);
+        alienSprites.push(alien2Img);
+
+         // Alien Type 3 (Octopus-like)
+        const alien3Pixels = [
+            '.WW.',
+            'WWWW',
+            'W.WW',
+            'WWWW',
+            '.W.W'
+        ];
+        const alien3Palette = { '.': 'transparent', 'W': '#FFFF00' }; // Yellow
+        const alien3Img = new Image();
+        alien3Img.src = generatePixelArtDataURL(alien3Pixels, alien3Palette, 3);
+        alienSprites.push(alien3Img);
+    }
+
+    // --- Sound Generation ---
+    function initAudio() {
+        if (audioInitialized) return; // Don't init multiple times
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            // Play a silent sound on the first interaction to unlock audio playback
+            const buffer = audioContext.createBuffer(1, 1, 22050);
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start(0);
+            console.log("Audio Context Initialized.");
+            audioInitialized = true;
+        } catch (e) {
+            console.warn('Web Audio API is not supported or could not be initialized.');
+            audioInitialized = false; // Set to false if failed
+        }
+    }
+
+    function playSound(type, config = {}) {
+        // Ensure audio context is ready and initialized by user interaction
+        if (!audioContext || !audioInitialized) return;
+
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        const now = audioContext.currentTime;
+        gainNode.gain.setValueAtTime(config.volume || 0.1, now); // Default volume
+
+        switch (type) {
+            case 'shoot':
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(880, now); // A5
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+                break;
+            case 'alienExplosion':
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(200, now);
+                oscillator.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+                break;
+            case 'playerDeath':
+                 oscillator.type = 'sawtooth';
+                 oscillator.frequency.setValueAtTime(440, now); // A4
+                 oscillator.frequency.exponentialRampToValueAtTime(110, now + 0.8); // A2
+                 gainNode.gain.setValueAtTime(0.3, now);
+                 gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+                 oscillator.start(now);
+                 oscillator.stop(now + 0.8);
+                 break;
+            case 'alienMove1': // Alternating sounds for movement
+                 oscillator.type = 'sine';
+                 oscillator.frequency.setValueAtTime(150, now);
+                 gainNode.gain.setValueAtTime(0.05, now); // Lower volume for move sounds
+                 gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+                 oscillator.start(now);
+                 oscillator.stop(now + 0.05);
+                 break;
+            case 'alienMove2':
+                 oscillator.type = 'sine';
+                 oscillator.frequency.setValueAtTime(180, now);
+                 gainNode.gain.setValueAtTime(0.05, now); // Lower volume for move sounds
+                 gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+                 oscillator.start(now);
+                 oscillator.stop(now + 0.05);
+                 break;
+             case 'waveClear': // Sound for clearing a wave
+                 oscillator.type = 'triangle';
+                 oscillator.frequency.setValueAtTime(440, now); // A4
+                 oscillator.frequency.linearRampToValueAtTime(880, now + 0.2); // A5
+                 oscillator.frequency.linearRampToValueAtTime(659, now + 0.4); // E5
+                 gainNode.gain.setValueAtTime(0.2, now);
+                 gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                 oscillator.start(now);
+                 oscillator.stop(now + 0.5);
+                 break;
+        }
+    }
+
+    // --- Game Initialization ---
+    function createAliens() {
+        aliens = [];
+        // Calculate speed based on wave number
+        alienSpeedX = ALIEN_SPEED_X_START * Math.pow(WAVE_SPEED_INCREASE, currentWave - 1);
+        alienDirection = 1;
+        for (let r = 0; r < ALIEN_ROWS; r++) {
+            for (let c = 0; c < ALIEN_COLS; c++) {
+                const alienTypeIndex = r % alienSprites.length; // Cycle through alien types
+                aliens.push({
+                    x: ALIEN_OFFSET_LEFT + c * (ALIEN_WIDTH + ALIEN_PADDING),
+                    y: ALIEN_OFFSET_TOP + r * (ALIEN_HEIGHT + ALIEN_PADDING),
+                    width: ALIEN_WIDTH,
+                    height: ALIEN_HEIGHT,
+                    active: true,
+                    type: alienTypeIndex
+                });
+            }
+        }
+    }
+
+    function createStars() {
+        stars = [];
+        for (let i = 0; i < STAR_COUNT; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 1.5 // Small stars
+            });
+        }
+    }
+
+    function startGame() {
+        // Ensure audio is initialized on the very first interaction (touch or key)
+        initAudio();
+        if (!gameStarted && !gameOver) {
+            gameStarted = true;
+            messageOverlay.style.display = 'none';
+            resetGame(); // Start the game properly
+        }
+    }
+
+    function resetGame() {
+        paddleX = (canvas.width - PADDLE_WIDTH) / 2;
+        bullets = [];
+        alienBullets = [];
+        score = 0;
+        lives = START_LIVES;
+        currentWave = 1; // Reset wave count
+        createAliens(); // Create first wave
+        gameOver = false;
+        gameStarted = true; // Ensure game is marked as started
+        messageOverlay.style.display = 'none';
+        // Don't re-initialize audio here, just ensure it's ready if needed
+        if (!audioInitialized) initAudio();
+        requestAnimationFrame(gameLoop); // Restart the loop if it stopped
+    }
+
+     function showMessage(message, showButton = true) {
+        // Use textContent for multi-line messages set via \n
+        messageText.textContent = message;
+        restartButton.style.display = showButton ? 'block' : 'none';
+        messageOverlay.style.display = 'flex'; // Use flex for centering
+    }
+
+    // --- Event Listeners ---
+    // Keyboard
+    document.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+        if (e.code === 'Space') {
+             e.preventDefault(); // Prevent page scroll
+             if (!gameStarted && !gameOver) {
+                 startGame();
+             } else if (gameStarted && !gameOver) {
+                 // Set flag for shooting in update loop
+                 touchShootActive = true; // Use same flag for space and touch shoot
+             }
+         }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+         if (e.code === 'Space') {
+             touchShootActive = false; // Reset shoot flag on key up
+         }
+    });
+
+    // Touch Controls
+    function handleTouchStart(e) {
+        e.preventDefault(); // Prevent default touch actions like scrolling
+        initAudio(); // Ensure audio is ready on first touch
+        const targetId = e.target.id;
+
+        if (!gameStarted && !gameOver) {
+            // Start game on first touch of any control button
+            startGame();
+            return; // Don't process controls until game is started
+        }
+
+        if (targetId === 'leftButton') touchLeftActive = true;
+        if (targetId === 'rightButton') touchRightActive = true;
+        if (targetId === 'shootButton') touchShootActive = true; // Set flag for shooting
+    }
+
+    function handleTouchEnd(e) {
+        e.preventDefault();
+        // Find the touch that ended and check its target
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
+            if (targetElement) {
+                 const targetId = targetElement.id;
+                 if (targetId === 'leftButton') touchLeftActive = false;
+                 if (targetId === 'rightButton') touchRightActive = false;
+                 if (targetId === 'shootButton') touchShootActive = false; // Reset shoot flag
+            }
+        }
+        // Fallback: Reset all if no specific target found (less precise)
+        if (e.touches.length === 0) { // No remaining touches
+             touchLeftActive = false;
+             touchRightActive = false;
+             touchShootActive = false;
+        }
+    }
+
+    leftButton.addEventListener('touchstart', handleTouchStart, { passive: false });
+    rightButton.addEventListener('touchstart', handleTouchStart, { passive: false });
+    shootButton.addEventListener('touchstart', handleTouchStart, { passive: false });
+
+    leftButton.addEventListener('touchend', handleTouchEnd, { passive: false });
+    rightButton.addEventListener('touchend', handleTouchEnd, { passive: false });
+    shootButton.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    // Prevent context menu on long press (mobile)
+    leftButton.addEventListener('contextmenu', (e) => e.preventDefault());
+    rightButton.addEventListener('contextmenu', (e) => e.preventDefault());
+    shootButton.addEventListener('contextmenu', (e) => e.preventDefault());
+
+
+    // Restart Button
+    restartButton.addEventListener('click', () => {
+        resetGame();
+    });
+    // Also allow restart via touch
+     restartButton.addEventListener('touchstart', (e) => {
+         e.preventDefault(); // Prevent click event firing too
+         resetGame();
+     }, { passive: false });
+
+
+    // --- Update Functions ---
+    function updatePaddle() {
+        if ((keys['ArrowLeft'] || touchLeftActive) && paddleX > 0) {
+            paddleX -= PADDLE_SPEED;
+        }
+        if ((keys['ArrowRight'] || touchRightActive) && paddleX < canvas.width - PADDLE_WIDTH) {
+            paddleX += PADDLE_SPEED;
+        }
+    }
+
+    function updateBullets() {
+        // Check the shoot flag (set by spacebar keydown or shoot button touchstart)
+        if (touchShootActive) {
+            const activePlayerBullets = bullets.filter(b => b.active).length;
+            if (activePlayerBullets === 0) { // Only one bullet on screen
+                bullets.push({ x: paddleX + PADDLE_WIDTH / 2 - BULLET_WIDTH / 2, y: canvas.height - PADDLE_HEIGHT - 10, active: true });
+                playSound('shoot');
+            }
+            // Important: Reset the flag immediately after firing once for touch/keydown
+            // Keyup/Touchend will also set it to false, but this prevents holding.
+            touchShootActive = false;
+        }
+
+        bullets.forEach(bullet => {
+            if (bullet.active) {
+                bullet.y -= BULLET_SPEED;
+                if (bullet.y < 0) {
+                    bullet.active = false;
+                }
+            }
+        });
+
+        // Clean up inactive bullets
+        bullets = bullets.filter(b => b.active);
+    }
+
+    function updateAliens() {
+        let moveDown = false;
+        let soundPlayedThisStep = false; // Track if move sound played in this horizontal pass
+
+        aliens.forEach(alien => {
+            if (alien.active) {
+                alien.x += alienSpeedX * alienDirection;
+                // Check boundaries
+                if (alien.x + alien.width >= canvas.width || alien.x <= 0) {
+                    moveDown = true;
+                }
+                // Random shooting
+                if (Math.random() < ALIEN_SHOOT_CHANCE * (1 + (currentWave-1)*0.1) ) { // Slightly increase shoot chance with waves
+                     alienBullets.push({ x: alien.x + alien.width / 2 - BULLET_WIDTH / 2, y: alien.y + alien.height, active: true });
+                     // Optional: play alien shoot sound
+                }
+                 // Check if aliens reached the bottom defense line (give some buffer)
+                 if (alien.y + alien.height > canvas.height - PADDLE_HEIGHT - 20) {
+                     gameOver = true;
+                     playSound('playerDeath');
+                 }
+            }
+        });
+
+        if (moveDown) {
+            alienDirection *= -1; // Reverse direction
+            aliens.forEach(alien => {
+                if (alien.active) {
+                    alien.y += ALIEN_SPEED_Y;
+                }
+            });
+             // Play sound only once per downward step
+             playSound(alienMoveSoundToggle ? 'alienMove1' : 'alienMove2');
+             alienMoveSoundToggle = !alienMoveSoundToggle;
+        }
+    }
+
+     function updateAlienBullets() {
+        alienBullets.forEach(bullet => {
+            if (bullet.active) {
+                bullet.y += ALIEN_BULLET_SPEED;
+                if (bullet.y > canvas.height) {
+                    bullet.active = false;
+                }
+            }
+        });
+        // Clean up inactive bullets
+        alienBullets = alienBullets.filter(b => b.active);
+    }
+
+    function checkCollisions() {
+        // Player bullets vs Aliens
+        bullets.forEach(bullet => {
+            if (!bullet.active) return;
+            aliens.forEach(alien => {
+                if (alien.active &&
+                    bullet.x < alien.x + alien.width &&
+                    bullet.x + BULLET_WIDTH > alien.x &&
+                    bullet.y < alien.y + alien.height &&
+                    bullet.y + BULLET_HEIGHT > alien.y)
+                {
+                    bullet.active = false;
+                    alien.active = false;
+                    score += 10 * currentWave; // Score increases with waves
+                    playSound('alienExplosion');
+                }
+            });
+        });
+
+        // Alien bullets vs Player
+        alienBullets.forEach(bullet => {
+            if (!bullet.active) return;
+            // Collision detection with paddle
+            if (bullet.x < paddleX + PADDLE_WIDTH &&
+                bullet.x + BULLET_WIDTH > paddleX &&
+                bullet.y + BULLET_HEIGHT > canvas.height - PADDLE_HEIGHT - 5 && // Check y collision at paddle level
+                bullet.y < canvas.height - 5) // Make sure bullet top is above paddle bottom
+            {
+                bullet.active = false;
+                lives--;
+                playSound('playerDeath');
+                if (lives <= 0) {
+                    gameOver = true;
+                } else {
+                    // Optional: Add brief invincibility or visual feedback
+                }
+            }
+        });
+
+         // Aliens vs Player (redundant if bottom check in updateAliens is good, but safe)
+         aliens.forEach(alien => {
+             if (alien.active &&
+                 alien.x < paddleX + PADDLE_WIDTH &&
+                 alien.x + alien.width > paddleX &&
+                 alien.y + alien.height > canvas.height - PADDLE_HEIGHT - 5)
+             {
+                 gameOver = true;
+                 playSound('playerDeath');
+             }
+         });
+    }
+
+    function checkWinCondition() {
+        const activeAliens = aliens.filter(a => a.active).length;
+        if (activeAliens === 0 && gameStarted && !gameOver) {
+            resetWave(); // Immediately start next wave
+        }
+    }
+
+    function resetWave() {
+        currentWave++;
+        bullets = []; // Clear player bullets
+        alienBullets = []; // Clear alien bullets
+        playSound('waveClear');
+        // Display wave message briefly (optional)
+        showMessage(`WAVE ${currentWave}`, false);
+        setTimeout(() => {
+             if (!gameOver) { // Only create aliens if game isn't over
+                 messageOverlay.style.display = 'none';
+                 createAliens();
+             }
+        }, 1500); // Show message for 1.5 seconds
+    }
+
+
+    // --- Draw Functions ---
+    function drawBackground() {
+        ctx.fillStyle = '#000'; // Black background
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw stars
+        ctx.fillStyle = '#FFF'; // White stars
+        stars.forEach(star => {
+            ctx.beginPath();
+            ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    function drawPaddle() {
+        if (playerSprite.complete && playerSprite.naturalWidth > 0) {
+             ctx.drawImage(playerSprite, paddleX, canvas.height - PADDLE_HEIGHT - 5, PADDLE_WIDTH, PADDLE_HEIGHT);
+        } else {
+            // Fallback rectangle if image hasn't loaded
+            ctx.fillStyle = '#0F0'; // Neon green fallback
+            ctx.fillRect(paddleX, canvas.height - PADDLE_HEIGHT - 5, PADDLE_WIDTH, PADDLE_HEIGHT);
+        }
+    }
+
+    function drawBullets() {
+        ctx.fillStyle = '#0F0'; // Player bullets are green
+        bullets.forEach(bullet => {
+            if (bullet.active) {
+                ctx.fillRect(bullet.x, bullet.y, BULLET_WIDTH, BULLET_HEIGHT);
+            }
+        });
+
+        ctx.fillStyle = '#F00'; // Alien bullets are red
+        alienBullets.forEach(bullet => {
+             if (bullet.active) {
+                 ctx.fillRect(bullet.x, bullet.y, BULLET_WIDTH, BULLET_HEIGHT * 0.8); // Slightly shorter
+             }
+         });
+    }
+
+    function drawAliens() {
+        aliens.forEach(alien => {
+            if (alien.active) {
+                const sprite = alienSprites[alien.type];
+                 if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+                    // Draw image with anti-aliasing disabled for crisp pixels
+                    ctx.imageSmoothingEnabled = false;
+                    ctx.drawImage(sprite, alien.x, alien.y, alien.width, alien.height);
+                    ctx.imageSmoothingEnabled = true; // Re-enable if needed elsewhere
+                } else {
+                    // Fallback rectangle
+                    const colors = ['#F0F', '#0FF', '#FF0']; // Fallback colors matching palettes
+                    ctx.fillStyle = colors[alien.type % colors.length];
+                    ctx.fillRect(alien.x, alien.y, alien.width, alien.height);
+                }
+            }
+        });
+    }
+
+    function drawUI() {
+        ctx.fillStyle = '#0F0'; // Neon green text
+        ctx.font = "18px 'Press Start 2P'"; // Use fixed size for UI text
+        ctx.textAlign = 'left';
+        ctx.fillText(`Score: ${score}`, 10, 25);
+        ctx.fillText(`Wave: ${currentWave}`, canvas.width / 2 - 50, 25); // Show wave
+
+        ctx.textAlign = 'right';
+        ctx.fillText(`Lives: ${lives}`, canvas.width - 10, 25);
+    }
+
+    // --- Game Loop ---
+    function gameLoop() {
+        // Check game over state first
+        if (gameOver) {
+            showMessage(`GAME OVER\nWave: ${currentWave}\nFinal Score: ${score}`);
+            return; // Stop the loop
+        }
+         // Check if game hasn't started yet
+         if (!gameStarted) {
+             drawBackground(); // Keep drawing background and stars
+             drawUI(); // Draw initial UI elements (score 0, lives 3)
+             showMessage("PIXEL INVADERS\n\nPress SPACE or Tap Controls\nto Start", false);
+             requestAnimationFrame(gameLoop); // Keep checking for start
+             return;
+         }
+
+        // --- Game is running ---
+        updatePaddle();
+        updateBullets();
+        updateAliens();
+        updateAlienBullets();
+        checkCollisions();
+        checkWinCondition(); // Check if all aliens are destroyed for wave progression
+
+        // --- Drawing ---
+        drawBackground();
+        drawPaddle();
+        drawAliens();
+        drawBullets();
+        drawUI();
+
+        // Request next frame
+        requestAnimationFrame(gameLoop);
+    }
+
+    // --- Initial Setup ---
+    initializeAssets(); // Generate pixel art into Image objects
+    createStars(); // Create background stars once
+    // Set initial paddle position based on canvas width (even before game starts)
+    paddleX = (canvas.width - PADDLE_WIDTH) / 2;
+    // Don't call resetGame() or startGame() here, wait for user interaction
+    showMessage("PIXEL INVADERS\n\nPress SPACE or Tap Controls\nto Start", false); // Show initial message
+    requestAnimationFrame(gameLoop); // Start the loop to show the start screen & listen for start
+
+</script>
+
+</body>
+</html>
+```
+
+**Summary of Changes:**
+
+1.  **HTML Viewport:** Added `<meta name="viewport"...>` tag for proper mobile scaling and disabled user scaling (`user-scalable=no`).
+2.  **CSS Layout:**
+    * Made `body` a flex container to center content vertically and horizontally.
+    * Introduced a `#game-wrapper` div around the canvas to control aspect ratio and scaling (`width: 100%`, `max-width: 800px`, `aspect-ratio: 800 / 600`).
+    * Made the `canvas` itself fill the wrapper (`width: 100%`, `height: 100%`).
+    * Added a `#controls-container` below the game wrapper using flexbox to arrange the touch buttons.
+    * Styled the `.control-button` elements to be large, tappable, and visually distinct with the arcade font.
+    * Made the message overlay responsive using `clamp()` for font size and relative width.
+    * Added `touch-action: manipulation` to `body` to prevent unwanted browser touch behaviors like double-tap zoom.
+3.  **HTML Controls:** Added three `<button>` elements for Left, Fire, and Right.
+4.  **JavaScript Touch Handling:**
+    * Added `touchstart` and `touchend` event listeners to the new buttons.
+    * These listeners set boolean flags (`touchLeftActive`, `touchRightActive`, `touchShootActive`).
+    * Added `e.preventDefault()` to touch handlers to stop scrolling/zooming.
+    * Modified `updatePaddle` and `updateBullets` to check both keyboard (`keys`) and touch flags.
+    * Ensured `initAudio()` is called on the *first* interaction (touch or key press) to comply with browser audio policies.
+5.  **Gameplay Adjustments:**
+    * Added wave tracking (`currentWave`).
+    * Aliens now get slightly faster (`WAVE_SPEED_INCREASE`) and shoot slightly more often each wave.
+    * Score multiplier increases with waves.
+    * Added a "Wave Cleared" message and sound (`playSound('waveClear')`) between waves.
+    * Modified the start message to mention tapping controls.
+    * Ensured the game loop continues drawing the start screen until interaction.
+    * Disabled image smoothing (`ctx.imageSmoothingEnabled = false`) when drawing alien sprites for a crisper pixel look.
+
+The game should now scale reasonably well on different screen sizes and be playable using the on-screen touch buttons on mobile devic
